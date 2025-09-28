@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sacrifices Must Be Made</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#eee;font-family:monospace}
+  #wrap{max-width:960px;margin:0 auto;padding:12px;position:relative}
+  /* main game canvas */
+  canvas{display:block;width:100%;image-rendering:pixelated;image-rendering:crisp-edges;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px}
+  /* HUD */
+  #hud{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:10px;pointer-events:none}
+  .bar{flex:1;height:16px;background:#222;border:1px solid #444;border-radius:4px;overflow:hidden}
+  .fill{height:100%;background:#9f6;transition:width .35s}
+  /* overlays */
+  #title,#overlay,#dialogue,#chapter,#ending{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;background:#111
+  }
+  #title.hidden,#overlay.hidden,#dialogue.hidden,#chapter.hidden,#ending.hidden{display:none}
+
+  /* title */
+  .title-inner{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .title-canvas{width:100%;max-width:960px;image-rendering:pixelated;background:#0e0e0e;border:1px solid #333;border-radius:6px}
+  .title-hint{color:#aaa;font-size:16px}
+  .title-btn{padding:10px 16px;background:#1f1f1f;border:1px solid #444;color:#eee;cursor:pointer;font-size:16px;border-radius:6px}
+  .title-btn:hover{background:#262626}
+
+  /* character select */
+  .select-wrap{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;width:92%;max-width:860px}
+  .card{border:1px solid #444;border-radius:8px;background:#0e0e0e;padding:16px;display:flex;flex-direction:column;gap:12px;align-items:center;cursor:pointer;transition:transform .08s}
+  .card:hover{transform:translateY(-2px);background:#121212}
+  .name{font-weight:700;font-size:18px}
+  .perk{color:#cfcfcf;font-size:14px}
+  .thumb{width:112px;height:112px;image-rendering:pixelated;background:#151515;border:1px solid #333;border-radius:6px;display:grid;place-items:center}
+  .hint{margin-top:12px;color:#aaa;font-size:15px}
+
+  /* dialogue */
+  #dialogue{justify-content:flex-end;background:transparent;padding-bottom:22px}
+  #dialogue .box{background:#0f0f0f;border:1px solid #444;border-radius:8px;padding:16px 18px;max-width:90%;font-size:16px}
+  #dialogue button{margin-top:10px;padding:8px 14px;background:#1f1f1f;color:#fff;border:1px solid #444;cursor:pointer;font-size:14px;border-radius:6px}
+  #dialogue button:hover{background:#262626}
+
+  /* chapter/story */
+  #chapter .box{background:#0f0f0f;border:1px solid #444;border-radius:8px;padding:18px 20px;max-width:90%}
+  #chapter h3{margin:0 0 8px 0;font-size:20px}
+  #chapter p{margin:0 0 12px 0;color:#ccc;font-size:16px}
+  #chapter .btn{padding:8px 14px;background:#1f1f1f;color:#fff;border:1px solid #444;cursor:pointer;font-size:15px;border-radius:6px}
+  #chapter .btn:hover{background:#262626}
+
+  /* ending */
+  #ending .box{background:#0f0f0f;border:1px solid #444;border-radius:8px;padding:18px 22px;min-width:320px}
+  #ending h3{font-size:22px;margin:0 0 8px 0}
+  #ending p{font-size:16px;margin:0 0 12px 0;color:#bbb}
+  #ending .btn{padding:8px 14px;background:#1f1f1f;color:#fff;border:1px solid #444;cursor:pointer;font-size:15px;border-radius:6px}
+  #ending .btn:hover{background:#262626}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <!-- main game canvas (physical 640x360; we draw at 320x180 scaled x2 for crisp pixels) -->
+  <canvas id="game" width="640" height="360"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="bar"><div id="foodFill"  class="fill"></div></div>
+    <div class="bar"><div id="waterFill" class="fill"></div></div>
+    <div class="bar"><div id="sleepFill" class="fill"></div></div>
+  </div>
+
+  <!-- TITLE SCREEN -->
+  <div id="title">
+    <div class="title-inner">
+      <!-- title canvas: also 640x360, but we render at 320x180 internally -->
+      <canvas id="titleCanvas" class="title-canvas" width="640" height="360"></canvas>
+      <div class="title-hint">press enter / space to continue</div>
+      <button id="titleBtn" class="title-btn">continue</button>
+    </div>
+  </div>
+
+  <!-- CHARACTER SELECT -->
+  <div id="overlay" class="hidden">
+    <div class="select-wrap">
+      <div class="card" data-char="prajzee" tabindex="0">
+        <div class="thumb"><canvas id="charP" width="64" height="64"></canvas></div>
+        <div class="name">prajzee</div>
+        <div class="perk">perk: food drains 40% slower</div>
+      </div>
+      <div class="card" data-char="somzii" tabindex="0">
+        <div class="thumb"><canvas id="charS" width="64" height="64"></canvas></div>
+        <div class="name">somzii</div>
+        <div class="perk">perk: no sleep drain</div>
+      </div>
+      <div class="card" data-char="vidzoo" tabindex="0">
+        <div class="thumb"><canvas id="charV" width="64" height="64"></canvas></div>
+        <div class="name">vidzoo</div>
+        <div class="perk">perk: no water drain</div>
+      </div>
+    </div>
+    <div class="hint">choose your character (or press 1 / 2 / 3)</div>
+  </div>
+
+  <!-- SHRINE DIALOGUE -->
+  <div id="dialogue" class="hidden">
+    <div class="box">
+      <p id="dText" style="margin:0 0 10px 0"></p>
+      <button onclick="acceptSacrifice()">accept sacrifice (enter/space)</button>
+    </div>
+  </div>
+
+  <!-- CHAPTER / STORY -->
+  <div id="chapter" class="hidden">
+    <div class="box">
+      <h3 id="chTitle"></h3>
+      <p id="chText"></p>
+      <button class="btn" id="chBtn">continue</button>
+    </div>
+  </div>
+
+  <!-- ENDING -->
+  <div id="ending" class="hidden">
+    <div class="box">
+      <h3 id="endTitle"></h3>
+      <p id="endSub"></p>
+      <button class="btn" onclick="restart()">restart</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ====== CONFIG ====== */
+const GAME_TITLE   = "Sacrifices Must Be Made";
+const GAME_TAGLINE = "the corridor only opens when you give";
+
+/* ====== CANVAS + PIXEL SCALE ====== */
+const SCALE = 2;              // draw at 320x180, scale x2 -> 640x360
+const cvs = document.getElementById("game");
+const ctx = cvs.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+ctx.setTransform(SCALE,0,0,SCALE,0,0); // all coordinates in 320x180 virtual space
+
+/* title canvas (same trick) */
+const titleCanvas = document.getElementById("titleCanvas");
+const tctx = titleCanvas.getContext("2d");
+tctx.imageSmoothingEnabled = false;
+tctx.setTransform(SCALE,0,0,SCALE,0,0);
+
+/* ====== UI ELEMENTS ====== */
+const bars = {
+  food : document.getElementById("foodFill"),
+  water: document.getElementById("waterFill"),
+  sleep: document.getElementById("sleepFill")
+};
+const titleView = document.getElementById("title");
+const titleBtn  = document.getElementById("titleBtn");
+const overlay   = document.getElementById("overlay");
+const dialogue  = document.getElementById("dialogue");
+const dText     = document.getElementById("dText");
+const chapterV  = document.getElementById("chapter");
+const chTitle   = document.getElementById("chTitle");
+const chText    = document.getElementById("chText");
+const chBtn     = document.getElementById("chBtn");
+const ending    = document.getElementById("ending");
+const endTitle  = document.getElementById("endTitle");
+const endSub    = document.getElementById("endSub");
+
+/* ====== INPUT ====== */
+const keys = {};
+addEventListener("keydown", e=>{
+  keys[e.key.toLowerCase()] = true;
+  if(!titleView.classList.contains("hidden") && (e.key===" "||e.key==="Enter")) goSelect();
+  if(!dialogue.classList.contains("hidden")   && (e.key===" "||e.key==="Enter")) acceptSacrifice();
+  if(!chapterV.classList.contains("hidden")   && (e.key===" "||e.key==="Enter")) chBtn.click();
+});
+addEventListener("keyup", e=>{ keys[e.key.toLowerCase()] = false; });
+
+/* ====== PIXEL HELPERS ====== */
+function px(c,x,y,col){ c.fillStyle = col; c.fillRect(x,y,1,1); }
+function lighten(hex,amt=0.2){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.min(255,Math.round(r+(255-r)*amt));
+  g=Math.min(255,Math.round(g+(255-g)*amt));
+  b=Math.min(255,Math.round(b+(255-b)*amt));
+  return `#${((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1)}`;
+}
+
+/* character previews (bigger) */
+function drawCharPreview(canvas,col){
+  const c=canvas.getContext("2d"); c.imageSmoothingEnabled=false;
+  c.clearRect(0,0,canvas.width,canvas.height);
+  // draw at 32x32, center inside 64x64
+  const ox=16, oy=16;
+  for(let y=6;y<14;y++)for(let x=5;x<11;x++)px(c,ox+x,oy+y,col);
+  for(let y=2;y<6;y++) for(let x=6;x<10;x++)px(c,ox+x,oy+y,lighten(col,0.2));
+  px(c,ox+9,oy+3,"#000"); // eye
+  for(let x=5;x<7;x++)px(c,ox+x,oy+14,"#333");
+  for(let x=9;x<11;x++)px(c,ox+x,oy+14,"#333");
+}
+
+/* ====== SHRINE ICONS (8x8) ====== */
+const ICONS = {
+  food:  ["00111000","01111100","11111110","11111110","11111110","01111100","00111000","00000000"],
+  sleep: ["00011000","00110000","01100000","01100000","01100000","00110000","00011000","00000000"],
+  water: ["00010000","00111000","01111100","11111110","11111110","01111100","00111000","00000000"],
+};
+function drawPixelIcon(icon,x,y,s,col){ ctx.fillStyle=col; for(let r=0;r<8;r++)for(let c=0;c<8;c++) if(icon[r][c]==="1") ctx.fillRect(x+c*s, y+r*s, s, s); }
+
+/* ====== STATE ====== */
+let mode="title", level=1;
+let state, player, platforms, shrines, goal, hazards, flames;
+let pending=null, ripples=[], popups=[], levelBanner=null;
+
+/* ====== TITLE RENDER ====== */
+function drawTitle(){
+  tctx.clearRect(0,0,320,180);
+  // background + scanlines
+  tctx.fillStyle="#0f0f0f"; tctx.fillRect(0,0,320,180);
+  tctx.fillStyle="#101010"; for(let y=0;y<180;y+=2) tctx.fillRect(0,y,320,1);
+  // title
+  tctx.fillStyle="#e5ffe9"; tctx.font="12px monospace"; tctx.textAlign="center";
+  tctx.fillText(GAME_TITLE, 160, 82);
+  tctx.fillStyle="#9fb3a1"; tctx.font="7px monospace";
+  tctx.fillText(GAME_TAGLINE, 160, 98);
+  // three glowing idols
+  const idols=[["#fa6",112],["#c6f",160],["#6cf",208]];
+  idols.forEach(([col,x])=>{
+    tctx.save(); tctx.shadowColor=col; tctx.shadowBlur=6; tctx.fillStyle=col;
+    tctx.fillRect(x-6,120,12,14); tctx.restore();
+    tctx.strokeStyle="#fff"; tctx.strokeRect(x-6,120,12,14);
+  });
+}
+
+/* ====== LEVELS ====== */
+function buildLevel(n){
+  // world uses 320x180 space; floor at y=152
+  platforms=[{x:0,y:152,w:320,h:28}];
+  shrines=[]; hazards=[]; flames=[];
+  if(n===1){
+    // tutorial
+    platforms.push({x:80,y:130,w:40,h:8});
+    platforms.push({x:160,y:118,w:40,h:8});
+    platforms.push({x:240,y:130,w:40,h:8});
+    shrines.push({x:90,y:116,w:12,h:14,type:"food", hit:false});
+    shrines.push({x:170,y:104,w:12,h:14,type:"sleep",hit:false});
+    goal={x:300,y:136,w:12,h:16};
+  } else if(n===2){
+    // the bridge – moving flame, bigger gaps, spikes
+    platforms.push({x:70,y:124,w:36,h:8});
+    platforms.push({x:132,y:104,w:36,h:8});
+    platforms.push({x:206,y:124,w:36,h:8});
+    platforms.push({x:260,y:108,w:36,h:8});
+    shrines.push({x:75,y:110,w:12,h:14,type:"water",hit:false});
+    hazards.push({x:148,y:148,w:20,h:4}); // spikes
+    flames.push({x:120,y:146,w:10,h:6, vx:0.6, min:100, max:220});
+    goal={x:300,y:136,w:12,h:16};
+  } else if(n===3){
+    // the furnace – tight jumps, more hazards
+    platforms.push({x:60,y:132,w:30,h:8});
+    platforms.push({x:110,y:116,w:30,h:8});
+    platforms.push({x:160,y:100,w:30,h:8});
+    platforms.push({x:210,y:116,w:30,h:8});
+    platforms.push({x:260,y:132,w:30,h:8});
+    hazards.push({x:95,y:148,w:24,h:4});
+    hazards.push({x:180,y:148,w:24,h:4});
+    flames.push({x:70,y:146,w:10,h:6,vx:0.85,min:60,max:130});
+    flames.push({x:190,y:146,w:10,h:6,vx:-0.85,min:180,max:300});
+    shrines.push({x:112,y:102,w:12,h:14,type:"food",hit:false});
+    goal={x:300,y:136,w:12,h:16};
+  }
+}
+
+/* ====== CHARACTER SELECT ====== */
+const cards=[...document.querySelectorAll(".card")];
+cards.forEach(c=>c.onclick=()=>selectChar(c.dataset.char));
+addEventListener("keydown",e=>{
+  if(mode==="select"){
+    if(e.key==="1") selectChar("prajzee");
+    if(e.key==="2") selectChar("somzii");
+    if(e.key==="3") selectChar("vidzoo");
+  }
+});
+function goSelect(){ titleView.classList.add("hidden"); overlay.classList.remove("hidden"); }
+titleBtn.onclick = goSelect;
+
+function selectChar(who){
+  overlay.classList.add("hidden");
+  level=1; mode="chapter";
+  state={food:100,water:100,sleep:100,sacrificed:{},alive:true,char:who};
+  const color = who==="prajzee" ? "#29ff6a" : who==="somzii" ? "#ff76d1" : "#62c9ff";
+  player={x:20,y:140,w:8,h:12,vx:0,vy:0,speed:50,onGround:false,color};
+  showChapter("prologue",
+    "you wake in a silent corridor of stone. three shrines breathe softly ahead—food, sleep, water. each door demands a cost. the exit opens only when you give.");
+}
+
+/* ====== CHAPTER / STORY ====== */
+function showChapter(title,text){
+  chTitle.textContent = title;
+  chText.textContent  = text;
+  chapterV.classList.remove("hidden");
+}
+chBtn.onclick = ()=>{
+  chapterV.classList.add("hidden");
+  startLevel(level);
+};
+
+/* ====== LEVEL START: banner ====== */
+function showLevelBanner(n){ levelBanner={text:`welcome to level ${n}`,t:0}; }
+
+/* ====== START LEVEL ====== */
+function startLevel(n){
+  mode="play"; pending=null; ripples.length=0; popups.length=0;
+  buildLevel(n);
+  player.x=20; player.y=140; player.vx=0; player.vy=0; player.onGround=false;
+  showLevelBanner(n);
+  requestAnimationFrame(loop);
+}
+
+/* ====== UI BARS ====== */
+function updateBars(){
+  bars.food .style.width = Math.max(0,state.food ) + "%";  bars.food .style.background="#9f6";
+  bars.water.style.width = Math.max(0,state.water) + "%";  bars.water.style.background="#6cf";
+  bars.sleep.style.width = Math.max(0,state.sleep) + "%";  bars.sleep.style.background="#f6c";
+}
+
+/* ====== DIALOGUE / SACRIFICE ====== */
+function openDialogue(s){
+  pending=s;
+  dText.textContent =
+    s.type==="food"  ? "a heavy gate. burn your strength? (sacrifice food)"
+  : s.type==="sleep" ? "a dark bridge. fight exhaustion? (sacrifice sleep)"
+  :                    "a scorching tunnel. dehydrate to pass? (sacrifice water)";
+  dialogue.classList.remove("hidden");
+}
+function acceptSacrifice(){
+  if(!pending) return;
+  state.sacrificed[pending.type]=true;
+  // feedback
+  ripples.push({x:pending.x+pending.w/2,y:pending.y+pending.h/2,r:2,t:0});
+  popups .push({x:pending.x+pending.w/2,y:pending.y-6,text:`${pending.type} sacrifice accepted`,t:0});
+  pending.hit=true; pending=null;
+  dialogue.classList.add("hidden");
+}
+
+/* ====== DRAINS (gentle; perks applied) ====== */
+function applyDrain(dt){
+  let f=0.007,w=0.006,s=0.005;
+  if(state.char==="prajzee") f*=0.6; // 40% slower food
+  if(state.char==="somzii") s=0.0;   // no sleep drain
+  if(state.char==="vidzoo") w=0.0;   // no water drain
+  state.food  -= f*dt;
+  state.water -= w*dt;
+  state.sleep -= s*dt;
+  if(state.food<=0||state.water<=0||state.sleep<=0) state.alive=false;
+}
+
+/* ====== HAZARD DAMAGE ====== */
+function takeDamage(amount=18){
+  state.food = Math.max(0, state.food-amount);
+  state.water= Math.max(0, state.water-amount);
+  state.sleep= Math.max(0, state.sleep-amount);
+  popups.push({x:player.x+player.w/2,y:player.y-6,text:"hurt!",t:0});
+  if(state.food<=0||state.water<=0||state.sleep<=0) state.alive=false;
+}
+
+/* ====== COLLISIONS ====== */
+function aabb(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y; }
+
+/* ====== DRAW WORLD ====== */
+function drawWorld(){
+  // clear
+  ctx.clearRect(0,0,320,180);
+
+  // background + ground
+  ctx.fillStyle="#1a1a1a"; ctx.fillRect(0,0,320,180);
+  ctx.fillStyle="#222";    ctx.fillRect(0,152,320,28);
+
+  // platforms (except ground)
+  ctx.fillStyle="#262626";
+  platforms.slice(1).forEach(p=>ctx.fillRect(p.x,p.y,p.w,p.h));
+
+  // hazards (spikes)
+  for(const sp of hazards){
+    ctx.fillStyle="#b44";
+    for(let x=sp.x; x<sp.x+sp.w; x+=4){
+      ctx.beginPath(); ctx.moveTo(x,sp.y);
+      ctx.lineTo(x+2,sp.y-4); ctx.lineTo(x+4,sp.y); ctx.closePath(); ctx.fill();
+    }
+  }
+  // flames (moving)
+  for(const f of flames){
+    ctx.save(); ctx.shadowColor="#f86"; ctx.shadowBlur=6; ctx.fillStyle="#f86";
+    ctx.fillRect(f.x,f.y,f.w,f.h); ctx.restore();
+    ctx.strokeStyle="#fff"; ctx.strokeRect(f.x,f.y,f.w,f.h);
+  }
+
+  // shrines
+  for(const s of shrines){
+    if(s.hit) continue;
+    const base = s.type==="food" ? "#fa6" : s.type==="sleep" ? "#c6f" : "#6cf";
+    ctx.save(); ctx.shadowColor=base; ctx.shadowBlur=6; ctx.fillStyle=base;
+    ctx.fillRect(s.x,s.y,s.w,s.h); ctx.restore();
+    ctx.strokeStyle="#fff"; ctx.strokeRect(s.x,s.y,s.w,s.h);
+    const icon=ICONS[s.type]; drawPixelIcon(icon, s.x+2, s.y+3, 1, "#111");
+  }
+  if(pending){ ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.strokeRect(pending.x-1,pending.y-1,pending.w+2,pending.h+2); }
+
+  // goal (pulse)
+  const t=(performance.now()/400)%1; const glow=4+Math.sin(t*6.283)*2;
+  ctx.save(); ctx.shadowColor="#bfe8cc"; ctx.shadowBlur=10+glow; ctx.fillStyle="#bfe8cc";
+  ctx.fillRect(goal.x,goal.y,goal.w,goal.h); ctx.restore();
+  ctx.strokeStyle="#fff"; ctx.strokeRect(goal.x,goal.y,goal.w,goal.h);
+
+  // player
+  ctx.fillStyle=player.color; ctx.fillRect(player.x,player.y,player.w,player.h);
+
+  // ripples
+  for(let i=ripples.length-1;i>=0;i--){
+    const r=ripples[i]; r.t+=1; r.r+=0.8;
+    if(r.t>22){ ripples.splice(i,1); continue; }
+    ctx.strokeStyle=`rgba(255,255,255,${1-r.t/22})`;
+    ctx.strokeRect(Math.round(r.x-r.r), Math.round(r.y-r.r), Math.round(r.r*2), Math.round(r.r*2));
+  }
+  // popups (bigger font for clarity)
+  ctx.fillStyle="#fff"; ctx.font="8px monospace";
+  for(let i=popups.length-1;i>=0;i--){
+    const p=popups[i]; p.t+=1; p.y-=0.3;
+    const alpha=Math.max(0,1-p.t/50);
+    if(alpha<=0){ popups.splice(i,1); continue; }
+    ctx.globalAlpha=alpha;
+    const w=ctx.measureText(p.text).width;
+    ctx.fillText(p.text, Math.round(p.x-w/2), Math.round(p.y));
+    ctx.globalAlpha=1;
+  }
+
+  // level banner (center fade)
+  if(levelBanner){
+    levelBanner.t++;
+    const a = Math.max(0, 1 - levelBanner.t/120); // ~2 seconds
+    if(a<=0){ levelBanner=null; }
+    else{
+      ctx.globalAlpha=a;
+      ctx.fillStyle="#fff"; ctx.font="10px monospace"; ctx.textAlign="center";
+      ctx.fillText(levelBanner.text,160,84);
+      ctx.globalAlpha=1; ctx.textAlign="start";
+    }
+  }
+}
+
+/* ====== MAIN LOOP ====== */
+function loop(){
+  // animate title while visible
+  if(!titleView.classList.contains("hidden")) drawTitle();
+
+  if(mode!=="play"){ requestAnimationFrame(loop); return; }
+
+  // physics
+  player.vy += 0.5;              // gravity
+  player.vx = 0;
+  if(keys["arrowleft"]||keys["a"]) player.vx -= player.speed/60;
+  if(keys["arrowright"]||keys["d"]) player.vx += player.speed/60;
+  if((keys["arrowup"]||keys["w"]||keys[" "]) && player.onGround){ player.vy=-5; player.onGround=false; }
+  player.x += player.vx; player.y += player.vy;
+
+  // floor & platforms
+  if(player.y+player.h>=152){ player.y=152-player.h; player.vy=0; player.onGround=true; }
+  platforms.slice(1).forEach(p=>{
+    if(aabb(player,p)){
+      if(player.vy>0 && player.y+player.h-p.y<10){ player.y=p.y-player.h; player.vy=0; player.onGround=true; }
+      else if(player.vx>0) player.x=p.x-player.w;
+      else if(player.vx<0) player.x=p.x+p.w;
+    }
+  });
+
+  // flames patrol
+  for(const f of flames){
+    f.x += f.vx;
+    if(f.x<f.min){ f.x=f.min; f.vx*=-1; }
+    if(f.x>f.max){ f.x=f.max; f.vx*=-1; }
+  }
+
+  // drains + HUD
+  applyDrain(1);
+  updateBars();
+
+  // shrine detection → dialogue
+  if(!pending){
+    for(const s of shrines){ if(!s.hit && aabb(player,s)){ openDialogue(s); break; } }
+  }
+
+  // hazards
+  for(const sp of hazards){
+    if(player.x+player.w>sp.x && player.x<sp.x+sp.w && player.y+player.h>=sp.y-2 && player.y+player.h<=sp.y+6){
+      takeDamage(22);
+    }
+  }
+  for(const f of flames){ if(aabb(player,f)) takeDamage(15); }
+
+  // goal
+  if(aabb(player,goal)){
+    if(level<3){
+      level++;
+      const s=state.sacrificed;
+      const line1 = level===2
+        ? "the first door groans open. ahead, the bridge hums and the air thins."
+        : "beyond the bridge, heat blooms. the path narrows — almost there.";
+      const line2 = (Object.keys(s).length>0)
+        ? `you have given ${Object.keys(s).join(", ")}. the corridor remembers.`
+        : "you’ve held onto everything… for now.";
+      mode="chapter";
+      showChapter(level===2?"chapter ii — the bridge":"chapter iii — the furnace", line1+" "+line2);
+    } else {
+      const count = Object.values(state.sacrificed).filter(Boolean).length;
+      mode="end"; showEnding(count>=2);
+    }
+  }
+
+  if(!state.alive){ mode="end"; showEnding(false); }
+
+  drawWorld();
+  requestAnimationFrame(loop);
+}
+
+/* ====== ENDING + RESTART ====== */
+function showEnding(win){
+  ending.classList.remove("hidden");
+  endTitle.textContent = win ? "you step through the final door" : "you collapse before the last gate";
+  const s=state.sacrificed, given=Object.keys(s);
+  endSub.textContent = win
+    ? (given.length?`you gave ${given.join(", ")}. the exit accepted your cost.`:`you offered nothing… and yet found a way.`)
+    : "your body could not go on.";
+}
+function restart(){
+  // back to title
+  ending.classList.add("hidden");
+  titleView.classList.remove("hidden");
+  mode="title";
+  overlay.classList.add("hidden");
+}
+
+/* ====== INIT: character previews + idle title anima ====== */
+drawCharPreview(document.getElementById("charP"), "#29ff6a");
+drawCharPreview(document.getElementById("charS"), "#ff76d1");
+drawCharPreview(document.getElementById("charV"), "#62c9ff");
+
+/* lightweight idle loop for title canvas */
+(function idle(){ drawTitle(); requestAnimationFrame(idle); })();
+</script>
+</body>
+</html>
